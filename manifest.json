@@ -1,0 +1,25 @@
+{
+    "manifest_version": 2,
+    "name": "deplaylistify",
+    "version": "0.1",
+    "permissions": [
+        "activeTab",
+        "storage"
+    ],
+    "description": "Prevent Youtube from opening videos as playlists",
+    "icons": {
+        "48": "icons/icon.png",
+        "96": "icons/icon.png"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://www.youtube.com/*"
+            ],
+            "js": [
+                "deplaylistify.js"
+            ],
+            "run_at": "document_start"
+        }
+    ]
+}
