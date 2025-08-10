@@ -8,8 +8,8 @@
     ],
     "description": "Prevent Youtube from opening videos as playlists",
     "icons": {
-        "48": "icons/icon.png",
-        "96": "icons/icon.png"
+        "48": "icons/icon.svg",
+        "96": "icons/icon.svg"
     },
     "content_scripts": [
         {

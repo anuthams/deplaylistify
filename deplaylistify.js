@@ -1,28 +1,30 @@
 let previousUrl = null //used for when the webpage injects url changes instead of reloading, thanks YT
 
-//Add a listener for ALT keypress and toggle a bool.
+//Add a listener for ALT keypress and toggle a bool after 5 seconds.
 function keyreleaseHandler(event) {
-    if (event.altKey == true) {
+    if (event.key === "Alt") {
         console.log("deplaylistify: Alt key released!");
-        browser.storage.local.set({ bypass_clean: "true" });
+        localStorage.setItem("skip_checking", "true")
+        setTimeout(() => {
+            localStorage.setItem("skip_checking", "false")
+        }, 5000);
     };
 };
-
-//function keypressHandler(event) {
-//    if (event.altKey == true) {
-//        console.log("deplaylistify: Alt key pressed!");
-//        browser.storage.local.set({ bypass_clean: "true" });
-//    };
-//};
-
-
-//document.addEventListener("keydown", keypressHandler);
 
 document.addEventListener("keyup", keyreleaseHandler);
 
 function cleanURL() {
     let current_url = window.location.href;
-    if (window.location.href == previousUrl) return //skip check if URL hasn't changed
+
+    if (localStorage.getItem("skip_checking") === "true") {
+        console.log("deplaylistify bypassed!!")
+        // update the current URL otherwise the playlist URL  will get cleaned
+        // and reloaded when this is cleared and checkURL reruns on the page
+        previousUrl = current_url.toString()
+        return
+    }
+    //skip check if URL hasn't changed or if we've bypassed the url cleaning
+    if (window.location.href === previousUrl) return
 
     if (previousUrl == null) {
         console.log(`deplaylistify: loading page, URL is ${current_url}`);
@@ -47,6 +49,3 @@ const config = { subtree: true, childList: true };
 
 // start observing change
 UrlObserver.observe(document, config);
-
-//TODO: add a listener for keypress and save to local storage as a bool.
-// so we can avoid cleaning when needed.
