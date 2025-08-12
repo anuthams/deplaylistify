@@ -1,48 +1,85 @@
-let previousUrl = null //used for when the webpage injects url changes instead of reloading, thanks YT
-let isDisabled = false
-//Add a listener for ALT keypress and toggle a bool after 5 seconds.
-function keyreleaseHandler(event) {
-    if (event.key === "Alt") {
-        console.log("deplaylistify: Alt key released!");
-        localStorage.setItem("skip_checking", "true")
-    };
-};
+const STATE = {
+    ENABLED: true, // extension enabled, so deplaylistifying is enabled
+    DISABLED: false
+}
 
-document.addEventListener("keyup", keyreleaseHandler);
+let previous_url = null; //used for when the webpage injects url changes instead of reloading, thanks YT
+let state = STATE.DISABLED; // default to skipping until we're told otherwise by background
 
 function cleanURL() {
     let current_url = window.location.href;
 
-    if (localStorage.getItem("skip_checking") === "true") {
-        console.log("deplaylistify bypassed!!")
-        // update the current URL otherwise the playlist URL  will get cleaned
-        // and reloaded when this is cleared and checkURL reruns on the page
-        previousUrl = current_url.toString()
-        return
+    if (state === STATE.DISABLED) {
+        previous_url = current_url;
+        return;
     }
     //skip check if URL hasn't changed or if we've bypassed the url cleaning
-    if (window.location.href === previousUrl) return
+    if (current_url === previous_url) {
+        return;
+    }
 
-    if (previousUrl == null) {
+    if (previous_url === null) {
         console.log(`deplaylistify: loading page, URL is ${current_url}`);
     }
-    console.log(`deplaylistify: URL changed from ${previousUrl} to ${window.location.href}`)
+    console.log(`deplaylistify: URL changed from ${previous_url} to ${window.location.href}`)
     let index = current_url.indexOf("&list=");
 
     // &list= will never be at the start of the url, else this is missing
     if (index > 0) {
-        str_url = current_url.toString()
+        str_url = current_url.toString();
         new_url = str_url.substring(0, index);
         console.log(`deplaylistify: found playlist URL, truncating at index: ${index}, new url is ${new_url}`);
-        previousUrl = new_url //save the cleaned url now, before loading the page.
-        window.location.replace(new_url)
+        previous_url = new_url; //save the cleaned url now, before loading the page.
+        window.location.replace(new_url);
     };
 };
 
-cleanURL();
+async function fetchState() {
+    // Request current state from background script
+    return browser.runtime.sendMessage({ "init": true }).then((message) => {
+        if (message.hasOwnProperty('current_state')) {
+            state = message['current_state'];
+            console.log(`deplaylistify: state fetched from background: ${state}`);
+            cleanURL();
+        };
+    });
+}
 
-const UrlObserver = new MutationObserver(cleanURL);
-const config = { subtree: true, childList: true };
+function init() {
+    console.log("deplaylistify: initialising...")
+    const UrlObserver = new MutationObserver(cleanURL);
+    const config = { subtree: true, childList: true };
+    // start observing changes to document
+    UrlObserver.observe(document, config);
 
-// start observing change
-UrlObserver.observe(document, config);
+    // Request current state from background script
+    fetchState();
+};
+
+async function sendState() {
+    console.log(`sending ${state}`)
+    browser.runtime.sendMessage({ "new_state": state }).then();
+}
+
+function toggleAndSendState(event) {
+    if (event.key == "Alt") {
+        console.log(`deplaylistify: toggling deplaylistify`)
+        state = !state;
+        sendState();
+    };
+};
+// Run initialisation
+window.addEventListener('load', init);
+
+window.addEventListener('focus', fetchState);
+
+window.addEventListener('keyup', toggleAndSendState)
+
+// Listen for state change updates from background
+browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.hasOwnProperty('new_state')) {
+        state = message['new_state'];
+        console.log("deplaylistify: " + (state === STATE.ENABLED ? "enabled" : "disabled"));
+        cleanURL();
+    };
+});
