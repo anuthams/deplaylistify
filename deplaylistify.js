@@ -1,13 +1,10 @@
 let previousUrl = null //used for when the webpage injects url changes instead of reloading, thanks YT
-
+let isDisabled = false
 //Add a listener for ALT keypress and toggle a bool after 5 seconds.
 function keyreleaseHandler(event) {
     if (event.key === "Alt") {
         console.log("deplaylistify: Alt key released!");
         localStorage.setItem("skip_checking", "true")
-        setTimeout(() => {
-            localStorage.setItem("skip_checking", "false")
-        }, 5000);
     };
 };
 
