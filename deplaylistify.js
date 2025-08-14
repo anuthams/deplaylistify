@@ -6,8 +6,8 @@ const STATE = {
 let previous_url = null; //used for when the webpage injects url changes instead of reloading, thanks YT
 let state = STATE.DISABLED; // default to skipping until we're told otherwise by background
 
-function cleanURL() {
-    let current_url = window.location.href;
+function cleanURL(url = window.location.href) {
+    let current_url = url;
 
     if (state === STATE.DISABLED) {
         previous_url = current_url;
@@ -36,7 +36,7 @@ function cleanURL() {
 
 async function fetchState() {
     // Request current state from background script
-    return browser.runtime.sendMessage({ "init": true }).then((message) => {
+    return browser.runtime.sendMessage({ type: "INIT" }).then((message) => {
         if (message.hasOwnProperty('current_state')) {
             state = message['current_state'];
             console.log(`deplaylistify: state fetched from background: ${state}`);
@@ -47,10 +47,10 @@ async function fetchState() {
 
 function init() {
     console.log("deplaylistify: initialising...")
-    const UrlObserver = new MutationObserver(cleanURL);
-    const config = { subtree: true, childList: true };
-    // start observing changes to document
-    UrlObserver.observe(document, config);
+    // const UrlObserver = new MutationObserver(cleanURL);
+    // const config = { subtree: true, childList: true };
+    // // start observing changes to document
+    // UrlObserver.observe(document, config);
 
     // Request current state from background script
     fetchState();
@@ -58,7 +58,7 @@ function init() {
 
 async function sendState() {
     console.log(`sending ${state}`)
-    browser.runtime.sendMessage({ "new_state": state }).then();
+    browser.runtime.sendMessage({ type: "STATE_CHANGE", state: state });
 }
 
 function toggleAndSendState(event) {
@@ -75,11 +75,24 @@ window.addEventListener('focus', fetchState);
 
 window.addEventListener('keyup', toggleAndSendState)
 
+function incoming_state_message_received(message, sender, sendResponse) {
+    state = message['state'];
+    console.log("deplaylistify: " + (state === STATE.ENABLED ? "enabled" : "disabled"));
+    cleanURL();
+}
+
+function incoming_url_message_received(message, sender, sendResponse) {
+    url = message['url'];
+    console.log(`deplaylistify: url changed to ${url}`)
+    cleanURL(url);
+}
+
 // Listen for state change updates from background
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.hasOwnProperty('new_state')) {
-        state = message['new_state'];
-        console.log("deplaylistify: " + (state === STATE.ENABLED ? "enabled" : "disabled"));
-        cleanURL();
-    };
+    if (!message.hasOwnProperty('type')) {
+        console.log("deplaylistify: Unknown message received: " + JSON.stringify(message));
+        return
+    }
+    if (message['type'] === 'STATE_CHANGE') state_change_message_received(message, sender, sendResponse)
+    if (message['type'] === 'URL_CHANGE') url_change_message_received(message, sender, sendResponse)
 });

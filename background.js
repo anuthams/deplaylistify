@@ -18,6 +18,23 @@ function setTabStates(new_states) {
     localStorage.setItem("tabExtensionState", JSON.stringify(new_states));
 };
 
+function getTabState(tab_id) {
+    let stored_state = JSON.parse(localStorage.getItem("tabExtensionState"));
+    return stored_state[tab_id];
+}
+
+function setTabState(tab_id, new_state) {
+    let stored_state = JSON.parse(localStorage.getItem("tabExtensionState"));
+    stored_state[tab_id] = new_state;
+    localStorage.setItem("tabExtensionState", JSON.stringify(stored_state));
+}
+
+function deleteTabState(tab_id) {
+    let stored_state = JSON.parse(localStorage.getItem("tabExtensionState"));
+    delete stored_state[tab_id];
+    localStorage.setItem("tabExtensionState", JSON.stringify(stored_state));
+}
+
 async function getTabIDs() {
     return browser.tabs.query({}).then((tabs) => {
         return tabs.map((tab) => tab.id);
@@ -33,6 +50,12 @@ function setTabIcon(tab_id, state) {
     browser.action.setTitle({
         title: state === STATE.DISABLED ? "Click to deplaylistify on this tab" : "Click to stop deplaylistifying this tab",
         tabId: tab_id
+    });
+}
+
+async function sendMessage(tab_id, message){
+    return browser.tabs.sendMessage(tab_id, message).catch(() => {
+        console.log(`deplaylistify: tab ${tab_id} not on YT`);
     });
 }
 
@@ -58,64 +81,64 @@ browser.action.onClicked.addListener((tab) => {
     console.log("background.js Action button clicked!")
 
     const tab_id = tab.id;
-    stored_state = getTabStates();
-    if (!stored_state) {
-        console.debug("background.js:28 tabExtensionState doesn't exist");
-        return // exit early, shouldn't happen but guard rails amirite
-    }
 
     // toggle state of current tab
-    new_state = !stored_state[tab_id];
-    stored_state[tab_id] = new_state;
-    setTabStates(stored_state);
-    browser.tabs.sendMessage(tab_id, { "new_state": new_state }).catch((error => {
-        console.log(`deplaylistify: tab ${tab_id} not on YT`);
-    })); // catch error if not on yt
+    new_state = !getTabState(tab_id);
+    setTabState(tab_id, new_state);
+
+    browser.tabs.sendMessage(tab_id, { type: "STATE_CHANGE", state: new_state }).catch(() => {
+        console.log(`deplaylistify: tab ${tab_id} not on YT`);;
+    }); // catch error if not on yt
     setTabIcon(tab_id, new_state);
 });
 
 browser.tabs.onCreated.addListener((tab) => {
     console.debug("New tab opened, adding to state tracking.");
-    stored_state = getTabStates();
-    stored_state[tab.id] = STATE.ENABLED;
+    setTabState(tab.id, STATE.ENABLED);
     setTabIcon(tab.id, STATE.ENABLED);
-    setTabStates(stored_state);
 });
 
-browser.tabs.onRemoved.addListener((tabId, removeInfo) => {
-    console.debug(`Tab ${tabId} removed, updating tab states`);
-    stored_state = getTabStates();
-    delete stored_state[tabId];
-    setTabStates(stored_state);
+browser.tabs.onRemoved.addListener((tab_id, removeInfo) => {
+    console.debug(`Tab ${tab_id} removed, updating tab states`);
+    deleteTabState(tab_id);
 });
-
 
 async function updateForeground() {
     //Run this to send updates to the foreground scripts - either on a tab update
 }
 
-browser.tabs.onUpdated.addListener((tabID, changeInfo, tab) => {
-    console.debug(`background.js - tab ${tabID} updated`);
-    stored_state = getTabStates();
-    if (!stored_state.hasOwnProperty(tabID)) consoleError(`No state info for tab ${tabID}`);
-    if (changeInfo.status === "complete") setTabIcon(tabID, stored_state[tabID])
-    if (changeInfo.url) console.debug(`background.js - tab URL changed to ${changeInfo.url}`)
-})
+browser.tabs.onUpdated.addListener((tab_id, changeInfo, tab) => {
+    console.debug(`background.js - tab ${tab_id} updated`);
+    tab_state = getTabState(tab_id);
+    if (tab_state === undefined) consoleError(`No state info for tab ${tab_id}`);
+    
+    if (changeInfo.status === "complete") setTabIcon(tab_id, tab_state);
+    if (change_info.url) {
+        console.log(`deplaylistify: URL changed in tab ${tab_id}: ${change_info.url}`);
+        sendMessage(tab_id, { type: "URL_CHANGE", url: change_info.url });
+    }
+});
 
 
+function init_message_received(message, sender, sendResponse) {
+    let tab_id = sender.tab.id;
+    console.log(`deplaylistify: Initialising tab ${tab_id}`);
+    sendResponse({ type: "STATE_CHANGE", state: getTabState(tab_id)});
+}
+
+function state_change_message_received(message, sender, sendResponse) {
+    let tab_id = sender.tab.id;
+    console.log(`deplaylistify: Toggling tab ${tab_id}`);
+    setTabState(tab.id, message['state']);
+    setTabIcon(tab.id, message['state']);
+}
+
+// Listen for state change updates from background
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.hasOwnProperty('init') && message['init']) {
-        console.log(`Initialised ${sender.tab.id}`);
-        stored_state = getTabStates();
-        sendResponse({ current_state: stored_state[sender.tab.id] });
+    if (!message.hasOwnProperty('type')) {
+        console.log("deplaylistify: Unknown message received: " + JSON.stringify(message));
+        return
     }
-
-    else if (message.hasOwnProperty('new_state') && message['new_state'] !== undefined) {
-        console.log(`Toggling deplaylistify on tab ${sender.tab.id}`);
-        new_state = message['new_state'];
-        stored_state = getTabStates();
-        stored_state[sender.tab.id] = new_state;
-        setTabStates(stored_state);
-        setTabIcon(sender.tab.id, stored_state[sender.tab.id]);
-    }
+    if (message['type'] === 'INIT') init_message_received(message, sender, sendResponse);
+    if (message['type'] === 'STATE_CHANGE') state_change_message_received(message, sender, sendResponse);
 });
