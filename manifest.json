@@ -24,7 +24,7 @@
         ]
     },
     "action": {
-        "default_icon": "icons/icon-on.svg",
+        "default_icon": "icons/icon-default.svg",
         "default_title": "Deplaylistifying this tab"
     },
     "permissions": [
