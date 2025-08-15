@@ -3,67 +3,75 @@ const STATE = {
     DISABLED: false
 }
 
+const YT_SEARCH_ALLOW_LIST = new Set([ // An allowlist of search parameters that won't be removed
+    "v",
+    "t"
+]);
+
 let previous_url = null; //used for when the webpage injects url changes instead of reloading, thanks YT
 let state = STATE.DISABLED; // default to skipping until we're told otherwise by background
 
+function consoleError(messageString) {
+    console.error(`deplaylistify: ${messageString}`);
+}
+
+function consoleLog(messageString) {
+    console.log(`deplaylistify: ${messageString}`);
+}
+
 function cleanURL(url = window.location.href) {
-    let current_url = url;
+    let current_url = new URL(url);
 
     if (state === STATE.DISABLED) {
         previous_url = current_url;
         return;
     }
     //skip check if URL hasn't changed or if we've bypassed the url cleaning
-    if (current_url === previous_url) {
+    if (current_url.href === previous_url) {
         return;
     }
 
     if (previous_url === null) {
-        console.log(`deplaylistify: loading page, URL is ${current_url}`);
+        consoleLog(`Loading page, URL is ${current_url.href}`);
     }
-    console.log(`deplaylistify: URL changed from ${previous_url} to ${window.location.href}`)
-    let index = current_url.indexOf("&list=");
+    consoleLog(`URL changed from ${previous_url} to ${current_url.href}`);
 
-    // &list= will never be at the start of the url, else this is missing
-    if (index > 0) {
-        str_url = current_url.toString();
-        new_url = str_url.substring(0, index);
-        console.log(`deplaylistify: found playlist URL, truncating at index: ${index}, new url is ${new_url}`);
-        previous_url = new_url; //save the cleaned url now, before loading the page.
-        window.location.replace(new_url);
-    };
+    if (current_url.searchParams.has("list")) {
+        consoleLog("Playlist detected, returning to normal video");
+        previous_url = current_url.href;
+        let new_params = Array.from(current_url.searchParams).reduce((accumulate, current) => {
+            if (YT_SEARCH_ALLOW_LIST.has(current[0])) { // If search key is in allow list then keep it
+                accumulate.append(current[0], current[1]);
+            }
+            return accumulate;
+        }, new URLSearchParams);
+
+        current_url.search = new_params.toString();
+        consoleLog(`Changing to ${current_url}`);
+        window.location.replace(current_url);
+    }
 };
 
 async function fetchState() {
     // Request current state from background script
-    return browser.runtime.sendMessage({ type: "INIT" }).then((message) => {
-        if (message.hasOwnProperty('current_state')) {
-            state = message['current_state'];
-            console.log(`deplaylistify: state fetched from background: ${state}`);
-            cleanURL();
-        };
-    });
+    return browser.runtime.sendMessage({ type: "INIT" }).then(receiveMessage);
 }
 
 function init() {
-    console.log("deplaylistify: initialising...")
-    // const UrlObserver = new MutationObserver(cleanURL);
-    // const config = { subtree: true, childList: true };
-    // // start observing changes to document
-    // UrlObserver.observe(document, config);
+    consoleLog("Initialising...")
 
     // Request current state from background script
     fetchState();
 };
 
 async function sendState() {
-    console.log(`sending ${state}`)
+    consoleLog(`Sending ${state}`)
     browser.runtime.sendMessage({ type: "STATE_CHANGE", state: state });
 }
 
 function toggleAndSendState(event) {
     if (event.key == "Alt") {
-        console.log(`deplaylistify: toggling deplaylistify`)
+        consoleLog(`Toggling deplaylistify`)
         state = !state;
         sendState();
     };
@@ -75,24 +83,26 @@ window.addEventListener('focus', fetchState);
 
 window.addEventListener('keyup', toggleAndSendState)
 
-function incoming_state_message_received(message, sender, sendResponse) {
+function receiveMessage(message, sender, sendResponse) {
+    if (!message.hasOwnProperty('type')) {
+        consoleLog("Unknown message received: " + JSON.stringify(message));
+        return
+    }
+    if (message['type'] === 'STATE_CHANGE') receiveMessageStateChange(message, sender, sendResponse)
+    if (message['type'] === 'URL_CHANGE') receiveMessageURLChange(message, sender, sendResponse)
+}
+
+function receiveMessageStateChange(message, sender, sendResponse) {
     state = message['state'];
-    console.log("deplaylistify: " + (state === STATE.ENABLED ? "enabled" : "disabled"));
+    consoleLog("State changed: " + (state === STATE.ENABLED ? "enabled" : "disabled"));
     cleanURL();
 }
 
-function incoming_url_message_received(message, sender, sendResponse) {
+function receiveMessageURLChange(message, sender, sendResponse) {
     url = message['url'];
-    console.log(`deplaylistify: url changed to ${url}`)
+    consoleLog(`URL changed to ${url}`);
     cleanURL(url);
 }
 
 // Listen for state change updates from background
-browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!message.hasOwnProperty('type')) {
-        console.log("deplaylistify: Unknown message received: " + JSON.stringify(message));
-        return
-    }
-    if (message['type'] === 'STATE_CHANGE') state_change_message_received(message, sender, sendResponse)
-    if (message['type'] === 'URL_CHANGE') url_change_message_received(message, sender, sendResponse)
-});
+browser.runtime.onMessage.addListener(receiveMessage);
