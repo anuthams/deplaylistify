@@ -30,7 +30,7 @@ class TabStateManager {
 
     async init(){
         return browser.storage.local.get(this.storage_key).then((result) => {
-            this.tab_states = result[this.storage_key];
+            this.tab_states = result[this.storage_key] || {};
         }).then(this.getTabIDs).then((tab_ids) => {
             this.tab_states = tab_ids.reduce((accumulate, current) => {
                 // if the stored_state has an item that is not in current tabs, it's removed. if the current tabs has an item not in stored, it is initialised to isDisabled

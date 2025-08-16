@@ -42,11 +42,25 @@ function cleanURL(url = window.location.href) {
             return accumulate;
         }, new URLSearchParams);
 
+        if (!new_params.has('t')) {
+            let time = getVideoTime();
+            if (time !== null && time >= 5) {
+                new_params.append('t', `${time}s`);
+            }
+        }
+
         current_url.search = new_params.toString();
         consoleLog(`Changing to ${current_url}`);
         window.location.replace(current_url);
     }
 };
+
+function getVideoTime() {
+    let video = document.querySelector('video.video-stream');
+    if (!video) return null;
+    let time = video.currentTime;
+    return Math.floor(time);
+}
 
 async function fetchState() {
     // Request current state from background script
