@@ -23,11 +23,7 @@ function cleanURL(url = window.location.href) {
     let current_url = new URL(url);
 
     if (state === STATE.DISABLED) {
-        previous_url = current_url;
-        return;
-    }
-    //skip check if URL hasn't changed or if we've bypassed the url cleaning
-    if (current_url.href === previous_url) {
+        previous_url = current_url.href;
         return;
     }
 

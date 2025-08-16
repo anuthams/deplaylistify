@@ -1,5 +1,13 @@
-const ICON_ON = "icon-on.svg"
-const ICON_OFF = "icon-off.svg"
+const ICON = {
+    ON: {
+        "48": "icons/icon-on.svg",
+        "96": "icons/icon-on.svg"
+    },
+    OFF: {
+        "48": "icons/icon-off.svg",
+        "96": "icons/icon-off.svg"
+    }
+}
 const STATE = {
     ENABLED: true, // extension enabled, so deplaylistifying is enabled
     DISABLED: false
@@ -17,15 +25,20 @@ function consoleLog(messageString) {
 class TabStateManager {
     constructor(storage_key = "tabExtensionState") {
         this.storage_key = storage_key;
-        this.tab_states = JSON.parse(localStorage.getItem(this.storage_key)) || {};
-        this.getTabIDs().then((tab_ids) => {
+        this.tab_states = {};
+    }
+
+    async init(){
+        return browser.storage.local.get(this.storage_key).then((result) => {
+            this.tab_states = result[this.storage_key];
+        }).then(this.getTabIDs).then((tab_ids) => {
             this.tab_states = tab_ids.reduce((accumulate, current) => {
                 // if the stored_state has an item that is not in current tabs, it's removed. if the current tabs has an item not in stored, it is initialised to isDisabled
                 accumulate[current] = this.tab_states.hasOwnProperty(current) ? this.tab_states[current] : STATE.ENABLED;
                 this.setTabIcon(current, accumulate[current]);
                 return accumulate;
             }, {});
-            this.save_state();
+            this.saveState();
         });
     }
 
@@ -33,16 +46,16 @@ class TabStateManager {
         return browser.tabs.query({}).then((tabs) => {
             return tabs.map((tab) => tab.id);
         });
-    };
+    }
 
-    save_state() {
-        localStorage.setItem(this.storage_key, JSON.stringify(this.tab_states));
+    saveState() {
+        browser.storage.local.set({[this.storage_key]: this.tab_states});
     }
 
     setTabIcon(tab_id, state) {
-        console.debug(`Updating icon for ${tab_id}`);
+        consoleLog(`Updating icon for ${tab_id}`);
         browser.action.setIcon({
-            path: state === STATE.DISABLED ? "icons/icon-off.svg" : "icons/icon-on.svg",
+            path: state === STATE.DISABLED ? ICON.OFF : ICON.ON,
             tabId: tab_id
         });
         browser.action.setTitle({
@@ -51,25 +64,25 @@ class TabStateManager {
         });
     }
 
-    get_tab_state(tab_id) {
+    getTabState(tab_id) {
         let tab_state = this.tab_states[tab_id];
         if (tab_state === undefined) consoleError(`Attempted to fetch tab that doesn't exist: ${tab_id}`);
         return tab_state;
     }
 
-    set_tab_state(tab_id, state) {
+    setTabState(tab_id, state) {
         this.tab_states[tab_id] = state;
+        this.saveState();
         this.setTabIcon(tab_id, state);
-        this.save_state();
     }
 
-    delete_tab(tab_id) {
+    deleteTab(tab_id) {
         delete this.tab_states[tab_id];
-        this.save_state();
+        this.saveState();
     }
 
-    toggle_tab(tab_id) {
-        this.set_tab_state(tab_id, !this.get_tab_state(tab_id));
+    toggleTabState(tab_id) {
+        this.setTabState(tab_id, !this.getTabState(tab_id));
     }
 }
 
@@ -79,31 +92,32 @@ async function sendMessage(tab_id, message){
     });
 }
 
-function onInstalled() {
+async function onInstalled() {
     consoleLog("Installed")
     tab_manager = new TabStateManager();
+    await tab_manager.init();
 }
 
 function onExtensionButtonClicked(tab) {
     consoleLog("Action button clicked!");
-    tab_manager.toggle_tab(tab.id);
-    sendMessage(tab.id, { type: "STATE_CHANGE", state: tab_manager.get_tab_state(tab.id) });
+    tab_manager.toggleTabState(tab.id);
+    sendMessage(tab.id, { type: "STATE_CHANGE", state: tab_manager.getTabState(tab.id) });
 }
 
 function onTabCreated(tab) {
     consoleLog(`New tab opened, started tracking: ${tab.id}`);
-    tab_manager.set_tab_state(tab.id, STATE.ENABLED);
+    tab_manager.setTabState(tab.id, STATE.ENABLED);
 }
 
 function onTabClosed(tab_id, remove_info) {
     consoleLog(`Tab ${tab_id} closed`);
-    tab_manager.delete_tab(tab_id);
+    tab_manager.deleteTab(tab_id);
 }
 
 function onTabChange(tab_id, change_info, tab) {
-    consoleLog(`Tab ${tab_id} updated`)
+    consoleLog(`Tab ${tab_id} updated`);
     if (change_info.status === "complete") { // any time a tab finishes loading
-        tab_manager.setTabIcon(tab_id, tab_manager.get_tab_state(tab_id)); // Ensure the tab icon is correct
+        tab_manager.setTabIcon(tab_id, tab_manager.getTabState(tab_id)); // Ensure the tab icon is correct
     }
     if (change_info.url) { // URL has changed
         consoleLog(`URL changed in tab ${tab_id}: ${change_info.url}`);
@@ -123,15 +137,15 @@ function receiveMessage(message, sender, sendResponse) {
 
 function receiveMessageInit(message, sender, sendResponse) {
     let tab_id = sender.tab.id;
-    console.log(`deplaylistify: Initialising tab ${tab_id}`);
-    sendResponse({ type: "STATE_CHANGE", state: tab_manager.get_tab_state(tab_id)});
+    consoleLog(`Initialising tab ${tab_id}`);
+    sendResponse({ type: "STATE_CHANGE", state: tab_manager.getTabState(tab_id)});
 }
 
 function receiveMessageStateChange(message, sender, sendResponse) {
     let tab_id = sender.tab.id;
-    console.log(`deplaylistify: Toggling tab ${tab_id}`);
-    setTabState(tab.id, message['state']);
-    setTabIcon(tab.id, message['state']);
+    consoleLog(`Toggling tab ${tab_id}`);
+    tab_manager.setTabState(tab_id, message['state']);
+    tab_manager.setTabIcon(tab_id, message['state']);
 }
 
 //Run this once per intialisation
